@@ -203,7 +203,7 @@ CREATE OR REPLACE FUNCTION public.has_break_glass(p_association_id UUID) RETURNS
 ALTER TABLE public.associations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "associations_select_public" ON public.associations FOR SELECT TO authenticated USING (status IN ('trial', 'active'));
 
-CREATE POLICY "memberships_tenant_isolation" ON public.association_memberships AS RESTRICTIVE TO authenticated USING (association_id = ANY(SELECT public.user_active_association_ids()));
+CREATE POLICY "memberships_tenant_isolation" ON public.association_memberships AS RESTRICTIVE TO authenticated USING (association_id = ANY(public.user_active_association_ids()));
 CREATE POLICY "memberships_select_member" ON public.association_memberships FOR SELECT TO authenticated USING ((SELECT public.is_active_member_of(association_id)));
 
 -- Revoke defaults
