@@ -1,13 +1,13 @@
 BEGIN;
 
--- Phase 4: Onboarding additions
+-- Phase 4: Paystack & Onboarding Additions
 ALTER TABLE public.associations 
 ADD COLUMN IF NOT EXISTS paystack_secret_key_encrypted TEXT,
 ADD COLUMN IF NOT EXISTS paystack_webhook_token TEXT UNIQUE,
 ADD COLUMN IF NOT EXISTS dpa_accepted_at TIMESTAMPTZ,
 ADD COLUMN IF NOT EXISTS dpa_version TEXT DEFAULT '1.0';
 
--- Phase 6: Payment flags
+-- Phase 6: Payment Flags & Thresholds
 ALTER TABLE public.associations ADD COLUMN IF NOT EXISTS large_payment_threshold_kobo BIGINT NOT NULL DEFAULT 50000000 CHECK (large_payment_threshold_kobo >= 0);
 ALTER TABLE public.payments 
 ADD COLUMN IF NOT EXISTS suspicious_flag BOOLEAN NOT NULL DEFAULT FALSE,
@@ -17,7 +17,7 @@ ADD COLUMN IF NOT EXISTS suspicious_flagged_at TIMESTAMPTZ,
 ADD COLUMN IF NOT EXISTS duplicate_proof_warning BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_payments_suspicious ON public.payments(association_id, suspicious_flag) WHERE suspicious_flag = TRUE;
 
--- Phase 8: Dashboard & Reports RPCs
+-- Phase 8: Dashboard Metrics RPC
 CREATE OR REPLACE FUNCTION public.get_dashboard_metrics(p_association_id UUID, p_financial_year_id UUID DEFAULT NULL)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v_user_id UUID; v_membership_id UUID; v_fy_id UUID; v_metrics JSONB;
@@ -41,31 +41,30 @@ END; $$;
 REVOKE EXECUTE ON FUNCTION public.get_dashboard_metrics(UUID, UUID) FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.get_dashboard_metrics(UUID, UUID) TO authenticated;
 
--- Phase 10: Notifications
+-- Phase 10: Notifications Tables
 CREATE TABLE IF NOT EXISTS public.notification_preferences (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  channel notification_channel NOT NULL, event_type TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  channel TEXT NOT NULL, event_type TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT TRUE,
   quiet_hours_start TIME, quiet_hours_end TIME, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, channel, event_type)
 );
 ALTER TABLE public.notification_preferences ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "notification_preferences_own" ON public.notification_preferences;
 CREATE POLICY "notification_preferences_own" ON public.notification_preferences FOR ALL TO authenticated USING (user_id = (SELECT auth.uid())) WITH CHECK (user_id = (SELECT auth.uid()));
 
 CREATE TABLE IF NOT EXISTS public.notification_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(), association_id UUID NOT NULL REFERENCES public.associations(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE, channel notification_channel NOT NULL, event_type TEXT NOT NULL,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE, channel TEXT NOT NULL, event_type TEXT NOT NULL,
   recipient_hash BYTEA NOT NULL, status TEXT NOT NULL CHECK (status IN ('queued', 'sent', 'failed', 'skipped')),
   provider_message_id TEXT, error_message TEXT, attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
   next_retry_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), sent_at TIMESTAMPTZ, idempotency_key TEXT UNIQUE
 );
-CREATE INDEX idx_notification_logs_user ON public.notification_logs(user_id, created_at DESC);
-CREATE INDEX idx_notification_logs_status ON public.notification_logs(status) WHERE status IN ('queued', 'failed');
+CREATE INDEX IF NOT EXISTS idx_notification_logs_user ON public.notification_logs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_status ON public.notification_logs(status) WHERE status IN ('queued', 'failed');
 ALTER TABLE public.notification_logs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "notification_logs_tenant_isolation" ON public.notification_logs AS RESTRICTIVE TO authenticated USING (association_id = ANY(SELECT public.user_active_association_ids()));
 
-ALTER TABLE public.notifications 
-ADD COLUMN IF NOT EXISTS log_id UUID REFERENCES public.notification_logs(id) ON DELETE SET NULL,
-ADD COLUMN IF NOT EXISTS event_type TEXT, ADD COLUMN IF NOT EXISTS reference_id UUID,
-ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0, ADD COLUMN IF NOT EXISTS error_message TEXT;
+-- FIXED: Removed the extra SELECT inside ANY() to correctly compare UUID against the UUID array returned by the function
+DROP POLICY IF EXISTS "notification_logs_tenant_isolation" ON public.notification_logs;
+CREATE POLICY "notification_logs_tenant_isolation" ON public.notification_logs AS RESTRICTIVE TO authenticated USING (association_id = ANY(public.user_active_association_ids()));
 
 COMMIT;
