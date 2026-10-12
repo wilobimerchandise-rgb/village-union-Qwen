@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS public.association_memberships (
   PRIMARY KEY (association_id, id),
   CHECK ((status = 'invited' AND user_id IS NULL) OR (status IN ('pending', 'active', 'suspended', 'inactive') AND user_id IS NOT NULL))
 );
-CREATE INDEX idx_memberships_user_active ON public.association_memberships(user_id, association_id, status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_memberships_user_active ON public.association_memberships(user_id, association_id, status) WHERE status = 'active';
 ALTER TABLE public.association_memberships ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS public.membership_contacts (
