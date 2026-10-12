@@ -1,1 +1,1 @@
-Financial records for villages / associations. Qwen.ai
+Financial records for villages/associations. Qwen.ai.
