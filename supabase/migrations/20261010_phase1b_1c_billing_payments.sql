@@ -19,7 +19,7 @@ DO $$ BEGIN
   CREATE TYPE notification_channel AS ENUM ('in_app', 'email', 'sms', 'whatsapp');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- Units & Billing
+-- Units & Billing Tables
 CREATE TABLE IF NOT EXISTS public.units (
   id UUID NOT NULL DEFAULT gen_random_uuid(), association_id UUID NOT NULL REFERENCES public.associations(id) ON DELETE CASCADE,
   label TEXT NOT NULL CHECK (char_length(label) BETWEEN 1 AND 100), address TEXT, status unit_status NOT NULL DEFAULT 'active',
@@ -67,19 +67,7 @@ CREATE TABLE IF NOT EXISTS public.bill_adjustments (
 );
 ALTER TABLE public.bill_adjustments ENABLE ROW LEVEL SECURITY;
 
-CREATE OR REPLACE VIEW public.bill_balances AS
-SELECT b.association_id, b.id AS bill_id, b.unit_id, b.amount_kobo AS total_amount_kobo,
-  COALESCE(SUM(CASE WHEN pa.status = 'verified' THEN pa.amount_kobo ELSE 0 END), 0)::BIGINT AS paid_kobo,
-  COALESCE(SUM(CASE WHEN pa.status = 'reserved' THEN pa.amount_kobo ELSE 0 END), 0)::BIGINT AS reserved_kobo,
-  COALESCE(SUM(CASE WHEN ba.approved_at IS NOT NULL THEN ba.amount_kobo ELSE 0 END), 0)::BIGINT AS adjusted_kobo,
-  b.amount_kobo - COALESCE(SUM(CASE WHEN pa.status = 'verified' THEN pa.amount_kobo ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN ba.approved_at IS NOT NULL THEN ba.amount_kobo ELSE 0 END), 0) AS outstanding_kobo
-FROM public.member_bills b
-LEFT JOIN public.payment_allocations pa ON pa.association_id = b.association_id AND pa.bill_id = b.id
-LEFT JOIN public.bill_adjustments ba ON ba.association_id = b.association_id AND ba.bill_id = b.id
-GROUP BY b.association_id, b.id, b.unit_id, b.amount_kobo;
-GRANT SELECT ON public.bill_balances TO authenticated;
-
--- Payments & Ledger
+-- Payments & Ledger Tables (Moved UP so the view can reference them)
 CREATE TABLE IF NOT EXISTS public.payments (
   id UUID NOT NULL DEFAULT gen_random_uuid(), association_id UUID NOT NULL REFERENCES public.associations(id) ON DELETE CASCADE,
   membership_id UUID NOT NULL, method payment_method NOT NULL, gross_kobo BIGINT NOT NULL CHECK (gross_kobo >= 0),
@@ -123,12 +111,28 @@ ALTER TABLE public.payment_reversals ENABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS public.member_credits (
   id UUID NOT NULL DEFAULT gen_random_uuid(), association_id UUID NOT NULL REFERENCES public.associations(id) ON DELETE CASCADE,
   membership_id UUID NOT NULL, amount_kobo BIGINT NOT NULL CHECK (amount_kobo >= 0), source credit_source NOT NULL,
-  source_payment_id UUID REFERENCES public.payments(id) ON DELETE SET NULL, status credit_status NOT NULL DEFAULT 'available',
+  source_payment_id UUID, 
+  status credit_status NOT NULL DEFAULT 'available',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (association_id, id),
-  FOREIGN KEY (association_id, membership_id) REFERENCES public.association_memberships(association_id, id) ON DELETE RESTRICT
+  FOREIGN KEY (association_id, membership_id) REFERENCES public.association_memberships(association_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (association_id, source_payment_id) REFERENCES public.payments(association_id, id) ON DELETE SET NULL
 );
 ALTER TABLE public.member_credits ENABLE ROW LEVEL SECURITY;
 
+-- View (Moved DOWN so it can reference payment_allocations)
+CREATE OR REPLACE VIEW public.bill_balances AS
+SELECT b.association_id, b.id AS bill_id, b.unit_id, b.amount_kobo AS total_amount_kobo,
+  COALESCE(SUM(CASE WHEN pa.status = 'verified' THEN pa.amount_kobo ELSE 0 END), 0)::BIGINT AS paid_kobo,
+  COALESCE(SUM(CASE WHEN pa.status = 'reserved' THEN pa.amount_kobo ELSE 0 END), 0)::BIGINT AS reserved_kobo,
+  COALESCE(SUM(CASE WHEN ba.approved_at IS NOT NULL THEN ba.amount_kobo ELSE 0 END), 0)::BIGINT AS adjusted_kobo,
+  b.amount_kobo - COALESCE(SUM(CASE WHEN pa.status = 'verified' THEN pa.amount_kobo ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN ba.approved_at IS NOT NULL THEN ba.amount_kobo ELSE 0 END), 0) AS outstanding_kobo
+FROM public.member_bills b
+LEFT JOIN public.payment_allocations pa ON pa.association_id = b.association_id AND pa.bill_id = b.id
+LEFT JOIN public.bill_adjustments ba ON ba.association_id = b.association_id AND ba.bill_id = b.id
+GROUP BY b.association_id, b.id, b.unit_id, b.amount_kobo;
+GRANT SELECT ON public.bill_balances TO authenticated;
+
+-- Receipts & Ledger
 CREATE TABLE IF NOT EXISTS public.receipts (
   id UUID NOT NULL DEFAULT gen_random_uuid(), association_id UUID NOT NULL, payment_id UUID NOT NULL, financial_year_id UUID NOT NULL,
   receipt_number TEXT NOT NULL, verification_token BYTEA NOT NULL DEFAULT gen_random_bytes(16), amount_kobo BIGINT NOT NULL CHECK (amount_kobo >= 0),
