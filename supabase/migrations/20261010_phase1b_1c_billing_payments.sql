@@ -78,8 +78,8 @@ CREATE TABLE IF NOT EXISTS public.payments (
   FOREIGN KEY (association_id, membership_id) REFERENCES public.association_memberships(association_id, id) ON DELETE RESTRICT,
   CHECK (net_kobo = gross_kobo - fee_kobo), CHECK (paid_at IS NULL OR accounting_date IS NULL OR accounting_date >= paid_at)
 );
-CREATE UNIQUE INDEX idx_payments_provider_ref ON public.payments(association_id, payer_reference) WHERE method = 'paystack' AND payer_reference IS NOT NULL;
-CREATE UNIQUE INDEX idx_payments_proof_sha256 ON public.payments(association_id, proof_sha256) WHERE proof_sha256 IS NOT NULL AND status NOT IN ('rejected', 'cancelled');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_provider_ref ON public.payments(association_id, payer_reference) WHERE method = 'paystack' AND payer_reference IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_proof_sha256 ON public.payments(association_id, proof_sha256) WHERE proof_sha256 IS NOT NULL AND status NOT IN ('rejected', 'cancelled');
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS public.payment_allocations (
@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS public.receipts (
   FOREIGN KEY (association_id, financial_year_id) REFERENCES public.financial_years(association_id, id) ON DELETE RESTRICT,
   CHECK (revoked_at IS NULL OR revocation_reason IS NOT NULL)
 );
-CREATE UNIQUE INDEX idx_receipts_payment ON public.receipts(payment_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_payment ON public.receipts(payment_id);
 ALTER TABLE public.receipts ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS public.receipt_counters (
@@ -196,7 +196,9 @@ ALTER TABLE public.report_jobs ENABLE ROW LEVEL SECURITY;
 -- Ledger Immutability Guard
 CREATE OR REPLACE FUNCTION public.ledger_immutable_guard() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN RAISE EXCEPTION 'Ledger entries are immutable. Corrections must be new records.' USING ERRCODE = '42501'; END; $$;
+DROP TRIGGER IF EXISTS ledger_no_update ON public.ledger_entries;
 CREATE TRIGGER ledger_no_update BEFORE UPDATE ON public.ledger_entries FOR EACH ROW EXECUTE FUNCTION public.ledger_immutable_guard();
+DROP TRIGGER IF EXISTS ledger_no_delete ON public.ledger_entries;
 CREATE TRIGGER ledger_no_delete BEFORE DELETE ON public.ledger_entries FOR EACH ROW EXECUTE FUNCTION public.ledger_immutable_guard();
 
 -- Enable RLS on all new tables
