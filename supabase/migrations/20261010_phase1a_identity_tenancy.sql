@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
   PRIMARY KEY (association_id, id),
   CHECK ((actor_membership_id IS NOT NULL AND actor_platform_admin_id IS NULL) OR (actor_membership_id IS NULL AND actor_platform_admin_id IS NOT NULL))
 );
-CREATE INDEX idx_activity_logs_association ON public.activity_logs(association_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_association ON public.activity_logs(association_id, created_at DESC);
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 
 -- Helpers
@@ -201,6 +201,7 @@ CREATE OR REPLACE FUNCTION public.has_break_glass(p_association_id UUID) RETURNS
 
 -- RLS Policies (Simplified for brevity, ensuring RESTRICTIVE tenant isolation)
 ALTER TABLE public.associations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "associations_select_public" ON public.associations;
 CREATE POLICY "associations_select_public" ON public.associations FOR SELECT TO authenticated USING (status IN ('trial', 'active'));
 
 CREATE POLICY "memberships_tenant_isolation" ON public.association_memberships AS RESTRICTIVE TO authenticated USING (association_id = ANY(public.user_active_association_ids()));
