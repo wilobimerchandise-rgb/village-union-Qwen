@@ -2,7 +2,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
 export function createClient() {
-  // cookies() MUST be called inside the function, not at the top level
+  // CRITICAL: cookies() MUST be called inside the function
   const cookieStore = cookies();
 
   return createServerClient(
@@ -17,16 +17,14 @@ export function createClient() {
           try {
             cookieStore.set({ name, value, ...options });
           } catch (error) {
-            // The `set` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing user sessions.
+            // Ignore if called from a Server Component without a request context
           }
         },
         remove(name: string, options: CookieOptions) {
           try {
             cookieStore.set({ name, value: '', ...options });
           } catch (error) {
-            // The `delete` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing user sessions.
+            // Ignore if called from a Server Component without a request context
           }
         },
       },
