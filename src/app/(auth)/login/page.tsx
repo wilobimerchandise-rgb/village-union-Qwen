@@ -32,35 +32,23 @@ export default function LoginPage() {
       return;
     }
 
-    // 2. Fetch ALL memberships for this user (avoids PostgREST enum URL filtering bugs)
-    const { data: memberships, error: membershipError } = await supabase
-      .from("association_memberships")
-      .select("association_id, status, role")
-      .eq("user_id", data.user.id);
+    // 2. Use the secure RPC function to bypass RLS stack depth issues
+    const { data: activeAssocId, error: membershipError } = await supabase
+      .rpc("get_active_association_id");
 
-    console.log("Memberships Query Result:", { memberships, error: membershipError });
+    console.log("RPC Membership Check Result:", { activeAssocId, error: membershipError });
 
-    if (membershipError) {
-      console.error("Membership Query Failed:", membershipError);
-      setError("Database error checking membership. Please try again.");
-      await supabase.auth.signOut();
-      setLoading(false);
-      return;
-    }
-
-    // 3. Find the active membership in JavaScript
-    const activeMembership = memberships?.find((m: any) => m.status === 'active');
-
-    if (!activeMembership) {
-      await supabase.auth.signOut();
+    if (membershipError || !activeAssocId) {
+      console.error("Membership Check Failed:", membershipError);
       setError("No active membership found. Contact your administrator.");
+      await supabase.auth.signOut();
       setLoading(false);
       return;
     }
 
-    // 4. Success! Redirect to the specific association dashboard
-    console.log("Redirecting to:", `/${activeMembership.association_id}/dashboard`);
-    router.push(`/${activeMembership.association_id}/dashboard`);
+    // 3. Success! Redirect to the specific association dashboard
+    console.log("Redirecting to:", `/${activeAssocId}/dashboard`);
+    router.push(`/${activeAssocId}/dashboard`);
   };
 
   return (
