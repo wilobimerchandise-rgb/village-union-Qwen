@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
 export async function loginAction(email: string, password: string) {
+  // CRITICAL: createClient() MUST be called inside the async function
   const supabase = createClient();
 
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -24,7 +25,6 @@ export async function loginAction(email: string, password: string) {
     .limit(1);
 
   if (!membership || membership.length === 0) {
-    // No active membership - sign out and return generic error
     await supabase.auth.signOut();
     return { error: true };
   }
