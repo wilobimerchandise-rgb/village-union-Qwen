@@ -1,95 +1,108 @@
 "use client";
 
 import { useState } from "react";
-import { loginAction } from "./actions";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
-    try {
-      const result = await loginAction(email, password);
-      if (result.error) {
-        setError("Invalid credentials or no active membership.");
-      }
-    } catch {
-      setError("Invalid credentials or no active membership.");
-    } finally {
+
+    const supabase = createClient();
+
+    // 1. Sign in
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (signInError || !data.user) {
+      setError("Invalid credentials.");
       setLoading(false);
+      return;
     }
-  }
+
+    // 2. Check for active membership
+    const { data: membership } = await supabase
+      .from("association_memberships")
+      .select("association_id")
+      .eq("user_id", data.user.id)
+      .eq("status", "active")
+      .limit(1)
+      .single();
+
+    if (!membership) {
+      await supabase.auth.signOut();
+      setError("No active membership found. Contact your administrator.");
+      setLoading(false);
+      return;
+    }
+
+    // 3. Success! Redirect to the specific association dashboard
+    router.push(`/${membership.association_id}/dashboard`);
+  };
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="mb-6 text-center">
-        <div className="mx-auto mb-3 h-10 w-10 rounded-lg bg-emerald-600" aria-hidden="true" />
-        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Sign in to ASSOCIET</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Multi-tenant financial OS for associations
-        </p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-zinc-50">
+      <div className="w-full max-w-md space-y-8 bg-white p-8 rounded-lg shadow-sm border border-zinc-200">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold tracking-tight text-zinc-900">Sign in to ASSOCIET</h2>
+          <p className="mt-2 text-sm text-zinc-600">Multi-tenant financial OS for associations</p>
+        </div>
+        
         {error && (
-          <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/20 dark:text-red-400">
-            {error}
+          <div className="rounded-md bg-red-50 p-4 border border-red-200">
+            <p className="text-sm text-red-700">{error}</p>
           </div>
         )}
 
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-          />
-        </div>
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="email" className="sr-only">Email</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="relative block w-full rounded-md border-0 py-2 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-emerald-600 sm:text-sm sm:leading-6"
+                placeholder="Email address"
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="sr-only">Password</label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="relative block w-full rounded-md border-0 py-2 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-emerald-600 sm:text-sm sm:leading-6"
+                placeholder="Password"
+              />
+            </div>
+          </div>
 
-        <div>
-          <label htmlFor="password" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-        >
-          {loading ? "Signing in..." : "Sign in"}
-        </button>
-      </form>
-
-      <div className="mt-6 space-y-2 text-center text-sm">
-        <Link href="/join" className="font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400">
-          Join an association →
-        </Link>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          Closed registration. Contact your association administrator for staff access.
-        </p>
+          <button
+            type="submit"
+            disabled={loading}
+            className="group relative flex w-full justify-center rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:opacity-50 transition-colors"
+          >
+            {loading ? "Signing in..." : "Sign in"}
+          </button>
+        </form>
       </div>
-    </div>
+    </main>
   );
 }
